@@ -419,7 +419,7 @@ class TTOpt():
         else:
             is_better = len(self.y_opt_list)==1 or (y_opt < self.y_opt_list[-2])
 
-        if self.callback and is_better:
+        if self.callback:
             last = {'last': [x_opt, y_opt, i_opt, opt_opt, self.k_evals]}
             self.callback(last)
 
