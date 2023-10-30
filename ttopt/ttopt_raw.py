@@ -85,8 +85,17 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
     if J0 is None:
         Y0, r = ttopt_init(n, rank, Y0, seed, with_rank=True)
         J_list = [None] * (d + 1)
+        J_list_new = [[None, None, None]] * (d + 1)
         for i in range(d - 1):
             J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], l2r=True)
+            J_list_new[i+1] = _merge_ind(_iter(Y0[i], _unmerge_ind(J_list_new[i][0], 0, i, n), Jg_list[i], l2r=True), 0, i+1, n)
+
+            # print(J_list[i+1])
+            # # print(J_list_new[i+1])
+            # print(_unmerge_ind(J_list_new[i+1], n[:i+1]))
+            # print('\n\n')
+
+        # assert False
     else:
         J_list = J0
         r = [1] + [J.shape[0] for J in J_list[1:-1]] + [1]
@@ -102,9 +111,42 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
     i = d - 1            # Index of the current core (0, 1, ..., d-1)
     l2r = False          # Core traversal direction (left <-> right)
 
+
+    # print(len(J_list), len(J_list_new))
+
+    foo = True
+
     while True:
+        print(i, iter, l2r)
         # We select multi-indices [samples, d], which will requested from func:
+        # print(J_list[i], J_list[i+1], Jg_list[i])
+        # print(J_list[i].shape)
+        # if l2r or foo:
+        #     foo = False
+        #     print('IN')
+        J_list_cur = _unmerge_ind(*J_list_new[i], n)
+        J_list_next = _unmerge_ind(*J_list_new[i+1], n)
+        # else:
+        #     print(J_list_new[i], n[i:])
+        # J_list_cur = _unmerge_ind(J_list_new[i], n[i:])
+        # J_list_next = _unmerge_ind(J_list_new[i+1], n[i+1:])
+
         I = _merge(J_list[i], J_list[i+1], Jg_list[i])
+        # print(J_list)
+        # print(n)
+        # print('J')
+        # print(J_list[i])
+        # print(J_list[i+1])
+        # print('\n\n')
+        # print(J_list_cur)
+        # print(J_list_next)
+        # I_new = _merge(_unmerge_ind(J_list[i], n[:i]), _unmerge_ind(J_list[i+1], n[:i+1]), Jg_list[i])
+        I_new = _merge(J_list_cur, J_list_next, Jg_list[i])
+        # print('I.shape', I.shape)
+        print('I')
+        print(I)
+        print(I_new)
+        # assert False
 
         # We check if the maximum number of requests has been exceeded:
         eval_curr = I.shape[0]
@@ -137,22 +179,41 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
             Z = ttopt_fs(Z, y_opt, fs_opt)
 
         # We perform iteration:
+        print(i, l2r)
         if l2r and i < d - 1:
-            J_list[i+1] = _iter(Z, J_list[i], Jg_list[i], l2r,
+            J_list_cur = _unmerge_ind(*J_list_new[i], n)
+            # print('cur')
+            # print(J_list[i])
+            # print(J_list_cur)
+
+            J_list_next = _iter(Z, J_list_cur, Jg_list[i], l2r,
                 add_opt_inner, add_opt_rect, add_rnd_inner)
             if add_opt_outer:
-                J_list[i+1] = _add_row(J_list[i+1], i_opt[:(i+1)])
+                J_list_next = _add_row(J_list_next, i_opt[:(i+1)])
             if add_rnd_outer:
-                J_list[i+1] = _add_random(J_list[i+1], n[:(i+1)])
+                J_list_next = _add_random(J_list_next, n[:(i+1)])
             r[i+1] = J_list[i+1].shape[0]
+            J_list_new[i+1] = _merge_ind(J_list_next, 0, i+1, n)
+            J_list[i+1] = J_list_next
+            # assert False
         if not l2r and i > 0:
-            J_list[i] = _iter(Z, J_list[i+1], Jg_list[i], l2r,
+            J_list_next = _unmerge_ind(*J_list_new[i+1], n)
+            # print('next')
+            # print(J_list[i+1])
+            # print(J_list_next)
+
+            J_list_cur = _iter(Z, J_list_next, Jg_list[i], l2r,
                 add_opt_inner, add_opt_rect, add_rnd_inner)
             if add_opt_outer:
-                J_list[i] = _add_row(J_list[i], i_opt[i:])
+                J_list_cur = _add_row(J_list_cur, i_opt[i:])
             if add_rnd_outer:
-                J_list[i] = _add_random(J_list[i], n[i:])
+                J_list_cur = _add_random(J_list_cur, n[i:])
             r[i] = J_list[i].shape[0]
+            # print(J_list_cur)
+            # print(i, J_list_cur, n.shape)
+            J_list_new[i] = _merge_ind(J_list_cur, i, d, n)
+            J_list[i] = J_list_cur
+            # print('cur', J_list_cur, J_list[i])
 
         # We update the current core index:
         i, iter, l2r = _update_iter(d, i, iter, l2r)
@@ -262,6 +323,8 @@ def _merge(J1, J2, Jg):
 
     if J1 is not None:
         J1_ = np.kron(_ones(n * r2), J1)
+
+        print(J1.shape, J1_.shape, I.shape)
         I = np.hstack((J1_, I))
 
     if J2 is not None:
@@ -301,3 +364,39 @@ def _update_iter(d, i, iter, l2r):
         i += 1 if l2r else -1
 
     return i, iter, l2r
+
+def _merge_ind(j, i_s, i_e, n):
+    print(j, n)
+    if j is not None:
+        # print(j.T, tuple(n), i_s, i_e)
+        # print(np.ravel_multi_index(j.T, tuple(n)))
+        foo = np.ravel_multi_index(j.T, tuple(n[i_s:i_e])), i_s, i_e
+        print(foo)
+        return foo
+    else:
+        return j, None, None
+
+def _unmerge_ind(j, i_s, i_e, n):
+    # print(j, i_s, i_e, n)
+    # print(j, n)
+    if j is not None:
+        return np.stack(np.unravel_index(j, tuple(n[i_s:i_e]))).T 
+    else:
+        return j
+
+
+def _merge_inds(J, n):
+    J_merged = [None, ] \
+        + [np.ravel_multi_index(i.T, tuple(n[:j+1]))
+           for j, i in enumerate(J[1:-1])] \
+        + [None,]
+
+    return J_merged
+
+def _unmerge_inds(J_merged, n):
+    J_unmerged = [None,] \
+        + [np.stack(np.unravel_index(i, tuple(n[:j+1]))).T 
+           for j, i in enumerate(J_merged[1:-1])] \
+        + [None,]
+
+    return J_unmerged
