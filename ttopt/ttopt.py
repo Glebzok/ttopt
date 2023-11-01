@@ -117,7 +117,7 @@ class TTOpt():
                  evals=None, name=None, callback=None, x_opt_real=None,
                  y_opt_real=None, is_func=True, is_vect=True, with_cache=False,
                  with_log=False, with_opt=False, with_full_info=False,
-                 with_wrn=True):
+                 with_wrn=True, uint8=False, packbits=False):
         # Set the target function and its dimension:
         self.f = f
         self.d = int(d)
@@ -180,6 +180,8 @@ class TTOpt():
         self.with_opt = bool(with_opt)
         self.with_full_info = bool(with_full_info)
         self.with_wrn = bool(with_wrn)
+        self.uint8 = uint8
+        self.packbits = packbits
 
         # Inner variables:
         self.cache = {}     # Cache for the results of requests to function
@@ -498,7 +500,8 @@ class TTOpt():
 
         i_opt, y_opt = ttopt(self.comp_opt, self.n, rank, None, Y0, seed,
                 fs_opt, add_opt_inner, add_opt_outer, add_opt_rect,
-                add_rnd_inner, add_rnd_outer, J0, is_max)
+                add_rnd_inner, add_rnd_outer, J0, is_max,
+                uint8=self.uint8, packbits=self.packbits)
 
         self.t_minim = tpc() - t_minim
 

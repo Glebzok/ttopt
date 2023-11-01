@@ -1,6 +1,6 @@
 import numpy as np
 from ttopt import TTOpt
-from ttopt.ttopt_raw import ttopt_init, _iter, _merge_inds, _unmerge_inds
+from ttopt.ttopt_raw import ttopt_init, _iter
 
 from teneva import ind_qtt_to_tt
 
@@ -35,18 +35,18 @@ def generate_random_J(n, rank, d):
     Y0, r = ttopt_init(n, rank, Y0=None, seed=34, with_rank=True)
     J_list = [None] * (d + 1)
     for i in range(d - 1):
-        J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], l2r=True)
+        J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], uint8=False, l2r=True)
 
     return J_list
  
-d = int(50)
-N = 2
+d = int(1e3)
+N = 5
 rank = 2
-evals = 100
+evals = 10000
 
 n = np.ones(d, dtype=int) * int(N)
 
-J_list = generate_random_J(n, rank, d)
+# J_list = generate_random_J(n, rank, d)
 
 # print([i.shape for i in J_list[1:-1]])
 # print(J_list)
@@ -64,7 +64,9 @@ tto = TTOpt(
         evals=evals,         # Number of function evaluations
         is_func=False,
         with_log=True,
-        with_cache=False)
+        with_cache=False,
+        uint8=True,
+        packbits=True)
 
 
 tto.optimize(rank)

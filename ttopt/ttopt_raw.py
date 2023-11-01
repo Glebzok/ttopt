@@ -23,7 +23,8 @@ from .maxvol import maxvol_rect
 
 def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
           add_opt_inner=True, add_opt_outer=False, add_opt_rect=False,
-          add_rnd_inner=False, add_rnd_outer=False, J0=None, is_max=False):
+          add_rnd_inner=False, add_rnd_outer=False, J0=None, is_max=False,
+          uint8=False, packbits=False):
     """Find the optimum element of the implicitly given multidimensional array.
 
     This function computes the minimum or maximum of the implicitly given
@@ -75,6 +76,8 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
     # Number of dimensions:
     d = len(n)
 
+    packbits = packbits & all(i <= 2 for i in n)
+
     # Number of possible function calls:
     evals = int(evals) if evals else None
 
@@ -84,18 +87,16 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
     # Prepare initial multi-indices for all unfolding matrices:
     if J0 is None:
         Y0, r = ttopt_init(n, rank, Y0, seed, with_rank=True)
-        J_list = [None] * (d + 1)
-        J_list_new = [[None, None, None]] * (d + 1)
+        if packbits:
+            J_list = [[None, None, None]] * (d + 1)
+        else:
+            J_list = [None] * (d + 1)
         for i in range(d - 1):
-            J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], l2r=True)
-            J_list_new[i+1] = _merge_ind(_iter(Y0[i], _unmerge_ind(J_list_new[i][0], 0, i, n), Jg_list[i], l2r=True), 0, i+1, n)
+            if packbits:
+                J_list[i+1] = _merge_ind(_iter(Y0[i], _unmerge_ind(*J_list[i]), Jg_list[i], uint8, l2r=True))
+            else:
+                J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], uint8, l2r=True)
 
-            # print(J_list[i+1])
-            # # print(J_list_new[i+1])
-            # print(_unmerge_ind(J_list_new[i+1], n[:i+1]))
-            # print('\n\n')
-
-        # assert False
     else:
         J_list = J0
         r = [1] + [J.shape[0] for J in J_list[1:-1]] + [1]
@@ -111,42 +112,13 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
     i = d - 1            # Index of the current core (0, 1, ..., d-1)
     l2r = False          # Core traversal direction (left <-> right)
 
-
-    # print(len(J_list), len(J_list_new))
-
     foo = True
 
     while True:
-        print(i, iter, l2r)
-        # We select multi-indices [samples, d], which will requested from func:
-        # print(J_list[i], J_list[i+1], Jg_list[i])
-        # print(J_list[i].shape)
-        # if l2r or foo:
-        #     foo = False
-        #     print('IN')
-        J_list_cur = _unmerge_ind(*J_list_new[i], n)
-        J_list_next = _unmerge_ind(*J_list_new[i+1], n)
-        # else:
-        #     print(J_list_new[i], n[i:])
-        # J_list_cur = _unmerge_ind(J_list_new[i], n[i:])
-        # J_list_next = _unmerge_ind(J_list_new[i+1], n[i+1:])
-
-        I = _merge(J_list[i], J_list[i+1], Jg_list[i])
-        # print(J_list)
-        # print(n)
-        # print('J')
-        # print(J_list[i])
-        # print(J_list[i+1])
-        # print('\n\n')
-        # print(J_list_cur)
-        # print(J_list_next)
-        # I_new = _merge(_unmerge_ind(J_list[i], n[:i]), _unmerge_ind(J_list[i+1], n[:i+1]), Jg_list[i])
-        I_new = _merge(J_list_cur, J_list_next, Jg_list[i])
-        # print('I.shape', I.shape)
-        print('I')
-        print(I)
-        print(I_new)
-        # assert False
+        if packbits:
+            I = _merge(_unmerge_ind(*J_list[i]), _unmerge_ind(*J_list[i+1]), Jg_list[i])
+        else:
+            I = _merge(J_list[i], J_list[i+1], Jg_list[i])
 
         # We check if the maximum number of requests has been exceeded:
         eval_curr = I.shape[0]
@@ -179,41 +151,43 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
             Z = ttopt_fs(Z, y_opt, fs_opt)
 
         # We perform iteration:
-        print(i, l2r)
         if l2r and i < d - 1:
-            J_list_cur = _unmerge_ind(*J_list_new[i], n)
-            # print('cur')
-            # print(J_list[i])
-            # print(J_list_cur)
+            if packbits:
+                J_list_cur = _unmerge_ind(*J_list[i])
+            else:
+                J_list_cur = J_list[i]
 
-            J_list_next = _iter(Z, J_list_cur, Jg_list[i], l2r,
+            J_list_next = _iter(Z, J_list_cur, Jg_list[i], uint8, l2r,
                 add_opt_inner, add_opt_rect, add_rnd_inner)
             if add_opt_outer:
                 J_list_next = _add_row(J_list_next, i_opt[:(i+1)])
             if add_rnd_outer:
                 J_list_next = _add_random(J_list_next, n[:(i+1)])
-            r[i+1] = J_list[i+1].shape[0]
-            J_list_new[i+1] = _merge_ind(J_list_next, 0, i+1, n)
-            J_list[i+1] = J_list_next
-            # assert False
-        if not l2r and i > 0:
-            J_list_next = _unmerge_ind(*J_list_new[i+1], n)
-            # print('next')
-            # print(J_list[i+1])
-            # print(J_list_next)
+            r[i+1] = J_list_next.shape[0]
 
-            J_list_cur = _iter(Z, J_list_next, Jg_list[i], l2r,
+            if packbits:
+                J_list[i+1] = _merge_ind(J_list_next)
+            else:
+                J_list[i+1] = J_list_next
+
+        if not l2r and i > 0:
+            if packbits:
+                J_list_next = _unmerge_ind(*J_list[i+1])
+            else:
+                J_list_next = J_list[i+1]
+
+            J_list_cur = _iter(Z, J_list_next, Jg_list[i], uint8, l2r,
                 add_opt_inner, add_opt_rect, add_rnd_inner)
             if add_opt_outer:
                 J_list_cur = _add_row(J_list_cur, i_opt[i:])
             if add_rnd_outer:
                 J_list_cur = _add_random(J_list_cur, n[i:])
-            r[i] = J_list[i].shape[0]
-            # print(J_list_cur)
-            # print(i, J_list_cur, n.shape)
-            J_list_new[i] = _merge_ind(J_list_cur, i, d, n)
-            J_list[i] = J_list_cur
-            # print('cur', J_list_cur, J_list[i])
+            r[i] = J_list_cur.shape[0]
+
+            if packbits:
+                J_list[i] = _merge_ind(J_list_cur)
+            else:
+                J_list[i] = J_list_cur
 
         # We update the current core index:
         i, iter, l2r = _update_iter(d, i, iter, l2r)
@@ -277,7 +251,7 @@ def _add_row(J, i_new):
     return J_new
 
 
-def _iter(Z, J, Jg, l2r=True, add_opt_inner=True, add_opt_rect=False,
+def _iter(Z, J, Jg, uint8, l2r=True, add_opt_inner=True, add_opt_rect=False,
           add_rnd_inner=False):
     r1, n, r2 = Z.shape
 
@@ -297,7 +271,7 @@ def _iter(Z, J, Jg, l2r=True, add_opt_inner=True, add_opt_rect=False,
         if not i_rnd in ind:
             ind[-2] = i_rnd
 
-    J_new = _stack(J, Jg, l2r)
+    J_new = _stack(J, Jg, uint8, l2r)
     J_new = J_new[ind, :]
 
     return J_new
@@ -324,7 +298,6 @@ def _merge(J1, J2, Jg):
     if J1 is not None:
         J1_ = np.kron(_ones(n * r2), J1)
 
-        print(J1.shape, J1_.shape, I.shape)
         I = np.hstack((J1_, I))
 
     if J2 is not None:
@@ -342,7 +315,7 @@ def _reshape(A, n):
     return np.reshape(A, n, order='F')
 
 
-def _stack(J, Jg, l2r=True):
+def _stack(J, Jg, uint8, l2r=True):
     r = J.shape[0] if J is not None else 1
     n = Jg.shape[0]
 
@@ -351,6 +324,9 @@ def _stack(J, Jg, l2r=True):
     if J is not None:
         J_old = np.kron(_ones(n), J) if l2r else np.kron(J, _ones(n))
         J_new = np.hstack((J_old, J_new)) if l2r else np.hstack((J_new, J_old))
+
+    if uint8 and (n <= np.iinfo('uint8').max + 1):
+        J_new = J_new.astype('uint8')
 
     return J_new
 
@@ -365,38 +341,14 @@ def _update_iter(d, i, iter, l2r):
 
     return i, iter, l2r
 
-def _merge_ind(j, i_s, i_e, n):
-    print(j, n)
+def _merge_ind(j):
     if j is not None:
-        # print(j.T, tuple(n), i_s, i_e)
-        # print(np.ravel_multi_index(j.T, tuple(n)))
-        foo = np.ravel_multi_index(j.T, tuple(n[i_s:i_e])), i_s, i_e
-        print(foo)
-        return foo
+        return np.packbits(j), j.size, j.shape
     else:
         return j, None, None
 
-def _unmerge_ind(j, i_s, i_e, n):
-    # print(j, i_s, i_e, n)
-    # print(j, n)
+def _unmerge_ind(j, size, shape):
     if j is not None:
-        return np.stack(np.unravel_index(j, tuple(n[i_s:i_e]))).T 
+        return np.unpackbits(j, count=size).reshape(shape)
     else:
         return j
-
-
-def _merge_inds(J, n):
-    J_merged = [None, ] \
-        + [np.ravel_multi_index(i.T, tuple(n[:j+1]))
-           for j, i in enumerate(J[1:-1])] \
-        + [None,]
-
-    return J_merged
-
-def _unmerge_inds(J_merged, n):
-    J_unmerged = [None,] \
-        + [np.stack(np.unravel_index(i, tuple(n[:j+1]))).T 
-           for j, i in enumerate(J_merged[1:-1])] \
-        + [None,]
-
-    return J_unmerged
