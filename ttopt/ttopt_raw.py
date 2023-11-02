@@ -24,7 +24,7 @@ from .maxvol import maxvol_rect
 def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
           add_opt_inner=True, add_opt_outer=False, add_opt_rect=False,
           add_rnd_inner=False, add_rnd_outer=False, J0=None, is_max=False,
-          uint8=False, packbits=False):
+          uint8=False, packbits=False, recomp=False):
     """Find the optimum element of the implicitly given multidimensional array.
 
     This function computes the minimum or maximum of the implicitly given
@@ -89,11 +89,17 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
         Y0, r = ttopt_init(n, rank, Y0, seed, with_rank=True)
         if packbits:
             J_list = [[None, None, None]] * (d + 1)
+        elif recomp:
+            J_cur = None
+            J_list = [None] * (d + 1)
         else:
             J_list = [None] * (d + 1)
         for i in range(d - 1):
             if packbits:
                 J_list[i+1] = _merge_ind(_iter(Y0[i], _unmerge_ind(*J_list[i]), Jg_list[i], uint8, l2r=True))
+            elif recomp:
+                J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], uint8, l2r=True, return_ind=True)
+                J_cur = _stack(J_cur, Jg_list[i], uint8, l2r=True)[J_list[i+1], :]
             else:
                 J_list[i+1] = _iter(Y0[i], J_list[i], Jg_list[i], uint8, l2r=True)
 
@@ -112,13 +118,20 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
     i = d - 1            # Index of the current core (0, 1, ..., d-1)
     l2r = False          # Core traversal direction (left <-> right)
 
-    foo = True
-
     while True:
         if packbits:
-            I = _merge(_unmerge_ind(*J_list[i]), _unmerge_ind(*J_list[i+1]), Jg_list[i])
+            J_list_cur = _unmerge_ind(*J_list[i])
+            J_list_next = _unmerge_ind(*J_list[i+1])
+
+        elif recomp:
+            J_list_cur = _compose_left(J_list, Jg_list, i, d, uint8)
+            J_list_next = _compose_right(J_list, Jg_list, i+1, d, uint8)
+
         else:
-            I = _merge(J_list[i], J_list[i+1], Jg_list[i])
+            J_list_cur = J_list[i]
+            J_list_next = J_list[i+1]
+
+        I = _merge(J_list_cur, J_list_next, Jg_list[i])
 
         # We check if the maximum number of requests has been exceeded:
         eval_curr = I.shape[0]
@@ -152,13 +165,8 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
 
         # We perform iteration:
         if l2r and i < d - 1:
-            if packbits:
-                J_list_cur = _unmerge_ind(*J_list[i])
-            else:
-                J_list_cur = J_list[i]
-
             J_list_next = _iter(Z, J_list_cur, Jg_list[i], uint8, l2r,
-                add_opt_inner, add_opt_rect, add_rnd_inner)
+                add_opt_inner, add_opt_rect, add_rnd_inner, return_ind=recomp)
             if add_opt_outer:
                 J_list_next = _add_row(J_list_next, i_opt[:(i+1)])
             if add_rnd_outer:
@@ -171,13 +179,8 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
                 J_list[i+1] = J_list_next
 
         if not l2r and i > 0:
-            if packbits:
-                J_list_next = _unmerge_ind(*J_list[i+1])
-            else:
-                J_list_next = J_list[i+1]
-
             J_list_cur = _iter(Z, J_list_next, Jg_list[i], uint8, l2r,
-                add_opt_inner, add_opt_rect, add_rnd_inner)
+                add_opt_inner, add_opt_rect, add_rnd_inner, return_ind=recomp)
             if add_opt_outer:
                 J_list_cur = _add_row(J_list_cur, i_opt[i:])
             if add_rnd_outer:
@@ -252,7 +255,7 @@ def _add_row(J, i_new):
 
 
 def _iter(Z, J, Jg, uint8, l2r=True, add_opt_inner=True, add_opt_rect=False,
-          add_rnd_inner=False):
+          add_rnd_inner=False, return_ind=False):
     r1, n, r2 = Z.shape
 
     Z = _reshape(Z, (r1 * n, r2)) if l2r else _reshape(Z, (r1, n * r2)).T
@@ -271,10 +274,26 @@ def _iter(Z, J, Jg, uint8, l2r=True, add_opt_inner=True, add_opt_rect=False,
         if not i_rnd in ind:
             ind[-2] = i_rnd
 
-    J_new = _stack(J, Jg, uint8, l2r)
-    J_new = J_new[ind, :]
+    if return_ind:
+        
+        return ind
+    else:
+        J_new = _stack(J, Jg, uint8, l2r)
+        J_new = J_new[ind, :]
 
-    return J_new
+        return J_new
+
+def _compose_right(J_list, Jg_list, i, d, uint8):
+    J_cur = None
+    for j in range(d - 1, i-1, -1):
+        J_cur = _stack(J_cur, Jg_list[j], uint8, l2r=False)[J_list[j], :]
+    return J_cur
+
+def _compose_left(J_list, Jg_list, i, d, uint8):
+    J_cur = None
+    for j in range(i):
+        J_cur = _stack(J_cur, Jg_list[j], uint8, l2r=True)[J_list[j+1], :]
+    return J_cur
 
 
 def _maxvol(A, tol=1.001, max_iters=1000, is_rect=False):
