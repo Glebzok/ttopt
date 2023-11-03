@@ -105,7 +105,10 @@ def ttopt(f, n, rank=4, evals=None, Y0=None, seed=42, fs_opt=1.,
 
     else:
         J_list = J0
-        r = [1] + [J.shape[0] for J in J_list[1:-1]] + [1]
+        if packbits:
+            r = [1] + [_unmerge_ind(*J).shape[0] for J in J_list[1:-1]] + [1]
+        else:
+            r = [1] + [J.shape[0] for J in J_list[1:-1]] + [1]
         for i in range(1, d):
             r[i] = min(rank, n[i-1] * r[i-1])
 
